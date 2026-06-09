@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routes import auth, health
+from app.routes import auth, documents, health
 
 logger = structlog.get_logger()
 
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router)
+    app.include_router(documents.router)
     app.include_router(health.router)
 
     logger.info("app_started", environment=settings.environment)

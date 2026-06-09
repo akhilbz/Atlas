@@ -18,6 +18,18 @@ from app.database import Base, get_db
 from app.main import app
 
 # ---------------------------------------------------------------------------
+# Redirect file uploads to a temporary directory so tests never write to the
+# real uploads/ folder.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session", autouse=True)
+def tmp_upload_dir(tmp_path_factory):
+    """Point the upload_dir setting at a temp folder for the whole test session."""
+    tmp = tmp_path_factory.mktemp("uploads")
+    get_settings().upload_dir = tmp
+    return tmp
+
+# ---------------------------------------------------------------------------
 # Engine scoped to the test session — tables are created once and torn down
 # at the end.
 # ---------------------------------------------------------------------------
