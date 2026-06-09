@@ -26,6 +26,10 @@ coverage.xml
 .vscode/
 .idea/
 
+# Uploaded files — keep the directory, ignore contents
+backend/uploads/*
+!backend/uploads/.gitkeep
+
 # Node
 node_modules/
 .next/
