@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,6 +17,8 @@ class Settings(BaseSettings):
     jwt_expiration_minutes: int = 30
     jwt_refresh_expiration_days: int = 7
     environment: str = "development"
+    upload_dir: Path = Path("uploads")
+    max_upload_size_mb: int = 20
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
