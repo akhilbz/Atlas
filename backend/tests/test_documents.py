@@ -197,6 +197,12 @@ def test_upload_with_invalid_token_rejected(client):
     assert resp.status_code == 401
 
 
+def test_upload_without_file_field_returns_422(client, auth_headers):
+    """Sending no file at all must be rejected by FastAPI's parameter validation."""
+    resp = client.post("/api/documents/upload", headers=auth_headers)
+    assert resp.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # User isolation
 # ---------------------------------------------------------------------------

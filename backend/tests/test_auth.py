@@ -225,3 +225,19 @@ def test_me_with_nonexistent_user_token(client):
     )
     resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 401
+
+
+def test_me_with_jwt_missing_type_claim_rejected(client, registered_user):
+    """A correctly signed JWT with no 'type' field must be rejected — not treated as access token."""
+    settings = get_settings()
+    token = jwt.encode(
+        {
+            "sub": registered_user["id"],
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
+            # intentionally no "type" key
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401

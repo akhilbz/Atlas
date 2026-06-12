@@ -1,3 +1,11 @@
+import os
+
+# Must be set before any cryptography/jose import.
+# Anaconda's OpenSSL 3.0 doesn't ship the legacy provider; this tells the
+# cryptography package to skip it. JWT uses modern algorithms (HS256) so
+# nothing is lost.
+os.environ.setdefault("CRYPTOGRAPHY_OPENSSL_NO_LEGACY", "1")
+
 """
 Test infrastructure.
 
