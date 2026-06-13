@@ -121,9 +121,10 @@ User uploads PDF
   → Save Document record (status: 'processing')
   → Return 201 immediately
   → Queue Celery task: process_document(doc_id)
-    → Chunk text (recursive splitter, ~500 tokens, 50 overlap)
-    → Generate embeddings (OpenAI text-embedding-3-small, batch)
-    → Store Chunk records with vectors
+    → Chunk text (hybrid: split on markdown headings, then group
+        sentences up to 500 tokens with 1-sentence overlap)
+    → Generate embeddings (OpenAI text-embedding-3-small, batches of 100)
+    → Store Chunk records with vectors and section metadata
     → Auto-generate tags and summary (LLM call)
     → Update Document status → 'ready'
     → Invalidate relevant caches

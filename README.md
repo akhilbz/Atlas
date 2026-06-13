@@ -108,7 +108,7 @@ celery -A app.tasks worker --loglevel=info
 ## Environment variables
 
 ```
-DATABASE_URL=postgresql://atlas:atlas@localhost:5432/atlas
+DATABASE_URL=postgresql://atlas:atlas@localhost:5435/atlas
 REDIS_URL=redis://localhost:6379/0
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
@@ -122,8 +122,10 @@ ENVIRONMENT=development
 
 ```bash
 cd backend
-pytest -v
+python -m pytest -v
 ```
+
+> Use `python -m pytest` rather than `pytest` directly to ensure the correct Python interpreter and installed packages are used.
 
 ## Project structure
 
@@ -163,13 +165,24 @@ atlas/
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Foundation: infra, models, JWT auth | Planned |
-| 2 | Document ingestion: upload, extract, chunk, embed, Celery | Planned |
+| 1 | Foundation: infra, models, JWT auth | Complete |
+| 2 | Document ingestion: upload, extract, chunk, embed, Celery | In progress |
 | 3 | RAG pipeline: hybrid search, SSE streaming, citations | Planned |
 | 4 | GraphQL layer | Planned |
 | 5 | Frontend: auth UI, library, chat | Planned |
 | 6 | LangGraph agent: multi-tool, human-in-the-loop | Planned |
 | 7 | Polish: caching, rate limiting, dashboard, CI/CD | Planned |
+
+### Phase 2 — Document ingestion breakdown
+
+| Piece | Scope | Status |
+|---|---|---|
+| 1 | File upload route (PDF, TXT, MD) with auth and size validation | Complete |
+| 2 | URL scraping utility (httpx + BeautifulSoup) | Complete |
+| 3 | Chunking utility — hybrid sentence/section-aware algorithm with tiktoken | Complete |
+| 4 | Embedding service — OpenAI text-embedding-3-small, batched | In progress |
+| 5 | Celery worker — process_document task: extract → chunk → embed → store | Planned |
+| 6 | Document library endpoints — GET list, GET detail, DELETE | Planned |
 
 ## Key design decisions
 
