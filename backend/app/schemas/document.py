@@ -20,3 +20,10 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DocumentListResponse(BaseModel):
+    """Paginated list of documents with an opaque cursor for the next page."""
+
+    items: list[DocumentResponse]
+    next_cursor: str | None

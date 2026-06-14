@@ -1,15 +1,18 @@
 """
-Document upload endpoint tests (Phase 2, Piece 1).
+Document endpoint tests (Phase 2, Pieces 1 & 6).
 
 Coverage:
-  file types  — txt, md accepted and marked ready; pdf accepted and marked processing
-  validation  — wrong extension, oversized file, non-UTF-8 text, missing file
-  auth        — unauthenticated request rejected
-  response    — correct shape, title derived from filename, sensitive fields excluded
-  isolation   — documents are scoped to the uploading user
+  upload      — file types, validation, auth, response shape, user isolation
+  list        — empty state, pagination, cursor, ordering, user isolation, auth
+  get         — happy path, 404 for unknown/other-user's doc, auth
+  delete      — 204 success, removes from list, 404, auth
 """
 
 import io
+import uuid
+from unittest.mock import patch
+
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -218,3 +221,163 @@ def test_documents_are_scoped_to_uploading_user(client, auth_headers):
 
     assert resp1.status_code == resp2.status_code == 201
     assert resp1.json()["id"] != resp2.json()["id"]
+
+
+# ---------------------------------------------------------------------------
+# Celery mock — prevents real Redis dispatch for every test in this module
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _mock_celery(monkeypatch):
+    """Replace process_document.delay with a no-op so tests need no Redis."""
+    with patch("app.routes.documents.process_document") as m:
+        m.delay.return_value = None
+        yield m
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for library endpoint tests
+# ---------------------------------------------------------------------------
+
+def _upload(client, headers, name="doc.txt", content="Sample. Content."):
+    resp = client.post("/api/documents/upload", files=_txt(content=content, name=name), headers=headers)
+    assert resp.status_code == 201
+    return resp.json()
+
+
+def _make_other_headers(client):
+    client.post("/api/auth/signup", json={"email": "other@test.com", "password": "pass1234"})
+    resp = client.post("/api/auth/login", json={"email": "other@test.com", "password": "pass1234"})
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/documents — list
+# ---------------------------------------------------------------------------
+
+def test_list_returns_200(client, auth_headers):
+    resp = client.get("/api/documents", headers=auth_headers)
+    assert resp.status_code == 200
+
+
+def test_list_empty_when_no_documents(client, auth_headers):
+    body = client.get("/api/documents", headers=auth_headers).json()
+    assert body["items"] == []
+    assert body["next_cursor"] is None
+
+
+def test_list_returns_uploaded_document(client, auth_headers):
+    doc = _upload(client, auth_headers, name="paper.txt")
+    ids = [d["id"] for d in client.get("/api/documents", headers=auth_headers).json()["items"]]
+    assert doc["id"] in ids
+
+
+def test_list_returns_all_user_documents(client, auth_headers):
+    _upload(client, auth_headers, name="a.txt")
+    _upload(client, auth_headers, name="b.txt")
+    assert len(client.get("/api/documents", headers=auth_headers).json()["items"]) == 2
+
+
+def test_list_ordered_newest_first(client, auth_headers):
+    _upload(client, auth_headers, name="first.txt")
+    _upload(client, auth_headers, name="second.txt")
+    dates = [d["created_at"] for d in client.get("/api/documents", headers=auth_headers).json()["items"]]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_list_excludes_other_users_documents(client, auth_headers):
+    other = _make_other_headers(client)
+    _upload(client, other, name="theirs.txt")
+    assert client.get("/api/documents", headers=auth_headers).json()["items"] == []
+
+
+def test_list_requires_auth(client):
+    assert client.get("/api/documents").status_code == 403
+
+
+def test_list_next_cursor_none_when_all_fit(client, auth_headers):
+    _upload(client, auth_headers)
+    body = client.get("/api/documents", headers=auth_headers, params={"limit": 10}).json()
+    assert body["next_cursor"] is None
+
+
+def test_list_next_cursor_present_when_overflow(client, auth_headers):
+    _upload(client, auth_headers, name="x.txt")
+    _upload(client, auth_headers, name="y.txt")
+    body = client.get("/api/documents", headers=auth_headers, params={"limit": 1}).json()
+    assert body["next_cursor"] is not None
+
+
+def test_list_cursor_pagination_fetches_second_page(client, auth_headers):
+    _upload(client, auth_headers, name="first.txt")
+    _upload(client, auth_headers, name="second.txt")
+    page1 = client.get("/api/documents", headers=auth_headers, params={"limit": 1}).json()
+    cursor = page1["next_cursor"]
+    page2 = client.get("/api/documents", headers=auth_headers, params={"limit": 1, "cursor": cursor}).json()
+    assert len(page2["items"]) == 1
+    assert page2["items"][0]["id"] != page1["items"][0]["id"]
+
+
+def test_list_invalid_cursor_returns_400(client, auth_headers):
+    resp = client.get("/api/documents", headers=auth_headers, params={"cursor": "not-valid!!"})
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /api/documents/{id} — detail
+# ---------------------------------------------------------------------------
+
+def test_get_document_returns_200(client, auth_headers):
+    doc = _upload(client, auth_headers)
+    assert client.get(f"/api/documents/{doc['id']}", headers=auth_headers).status_code == 200
+
+
+def test_get_document_returns_correct_id(client, auth_headers):
+    doc = _upload(client, auth_headers, name="specific.txt")
+    assert client.get(f"/api/documents/{doc['id']}", headers=auth_headers).json()["id"] == doc["id"]
+
+
+def test_get_nonexistent_document_returns_404(client, auth_headers):
+    assert client.get(f"/api/documents/{uuid.uuid4()}", headers=auth_headers).status_code == 404
+
+
+def test_get_other_users_document_returns_404(client, auth_headers):
+    other = _make_other_headers(client)
+    doc = _upload(client, other, name="private.txt")
+    assert client.get(f"/api/documents/{doc['id']}", headers=auth_headers).status_code == 404
+
+
+def test_get_document_requires_auth(client, auth_headers):
+    doc = _upload(client, auth_headers)
+    assert client.get(f"/api/documents/{doc['id']}").status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/documents/{id}
+# ---------------------------------------------------------------------------
+
+def test_delete_document_returns_204(client, auth_headers):
+    doc = _upload(client, auth_headers)
+    assert client.delete(f"/api/documents/{doc['id']}", headers=auth_headers).status_code == 204
+
+
+def test_delete_removes_document_from_list(client, auth_headers):
+    doc = _upload(client, auth_headers)
+    client.delete(f"/api/documents/{doc['id']}", headers=auth_headers)
+    ids = [d["id"] for d in client.get("/api/documents", headers=auth_headers).json()["items"]]
+    assert doc["id"] not in ids
+
+
+def test_delete_nonexistent_document_returns_404(client, auth_headers):
+    assert client.delete(f"/api/documents/{uuid.uuid4()}", headers=auth_headers).status_code == 404
+
+
+def test_delete_other_users_document_returns_404(client, auth_headers):
+    other = _make_other_headers(client)
+    doc = _upload(client, other, name="notmine.txt")
+    assert client.delete(f"/api/documents/{doc['id']}", headers=auth_headers).status_code == 404
+
+
+def test_delete_requires_auth(client, auth_headers):
+    doc = _upload(client, auth_headers)
+    assert client.delete(f"/api/documents/{doc['id']}").status_code == 403
